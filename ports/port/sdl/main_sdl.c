@@ -1212,11 +1212,46 @@ static void window_shot(const char* path) {
 }
 #endif
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <shellapi.h>
+/* (ForkAde) the command line as UTF-8 (the launcher's nicknames and paths may have accents; the C runtime's argv is
+   in the ANSI code page) */
+static void utf8_arguments(int* argc, char*** argv) {
+    int n, i;
+    LPWSTR* wide = CommandLineToArgvW(GetCommandLineW(), &n);
+    char** out;
+    if (wide == NULL) {
+        return;
+    }
+    out = calloc((size_t)n + 1, sizeof *out);
+    for (i = 0; out != NULL && i < n; i++) {
+        int bytes = WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, NULL, 0, NULL, NULL);
+        out[i] = malloc((size_t)(bytes > 0 ? bytes : 1));
+        if (out[i] == NULL) {
+            return;
+        }
+        if (bytes <= 0 || WideCharToMultiByte(CP_UTF8, 0, wide[i], -1, out[i], bytes, NULL, NULL) <= 0) {
+            out[i][0] = 0;
+        }
+    }
+    LocalFree(wide);
+    if (out != NULL) {
+        *argc = n;
+        *argv = out;
+    }
+}
+#endif
+
 int main(int argc, char** argv) {
     int quit = 0;
     long frames_left = getenv("MVC2_FRAMES") ? atol(getenv("MVC2_FRAMES")) : -1;
 
     test_run = frames_left >= 0;
+#ifdef _WIN32
+    utf8_arguments(&argc, &argv);
+#endif
 
     if (!naomi_map_ram()) {
         fprintf(stderr, "could not map main RAM at %08X\n", NAOMI_RAM_BASE);

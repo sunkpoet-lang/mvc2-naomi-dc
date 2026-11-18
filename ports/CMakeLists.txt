@@ -403,7 +403,7 @@ function(mvc2_executable TARGET)
     target_include_directories(${TARGET} PRIVATE ${PORT}/include ${PORT}/render ${PORT}/snd
         ${CMAKE_BINARY_DIR}/gen ${PORT}/ext/libchdr/deps/miniz-3.1.2) # (ForkAde: replay_identity.h, miniz for .fareplay)
     if(MVC2_SDL3 AND WIN32)
-        target_link_libraries(${TARGET} PRIVATE GekkoNet ws2_32 bcrypt) # (ForkAde: online play)
+        target_link_libraries(${TARGET} PRIVATE GekkoNet ws2_32 bcrypt shell32) # (ForkAde: online play; the UTF-8 command line)
         target_include_directories(${TARGET} PRIVATE ${PORT}/forkade/zlib) # (zlib.h: miniz)
     endif()
     target_compile_definitions(${TARGET} PRIVATE ${DEFS})
