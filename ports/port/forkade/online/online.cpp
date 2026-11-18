@@ -67,7 +67,7 @@ namespace {
     constexpr unsigned kTimeoutMs = 5000; // (under the tunnel's 8 s without traffic)
     // (sf3comp) A spectator's wait while the match's state comes: sf3comp's is near 10 MB (the character RAM), which a
     // relay takes longer than 5 s to carry; once it watches, the usual 5 s again
-    constexpr unsigned kWatchJoinMs = 30000;
+    constexpr unsigned kWatchJoinMs = 120000; // (MvC2: its state, some 10 MB packed, at a relay's pace)
     // The address GekkoNet is given for the other player: the socket knows where that is
     constexpr char kPeer[] = "peer";
     constexpr uint32_t kStateMark = 0x4F4E4C31; // "ONL1"

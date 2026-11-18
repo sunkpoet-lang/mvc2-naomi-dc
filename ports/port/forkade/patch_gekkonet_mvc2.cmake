@@ -5,7 +5,9 @@
 #  - a hook (gekko_forkade_portable) the game sets: it turns the token GekkoNet saved as portable into the whole state,
 #    and says how big a whole state may be;
 #  - the host takes a spectator's state only from that portable save, never from the session's tokens;
-#  - a spectator takes states up to that size.
+#  - a spectator takes states up to that size;
+#  - the state's chunks sent at a pace a relay carries (10 every 16 ms), and the spectators' inputs kept for 2 minutes
+#    meanwhile.
 # The packets are the same as sf3comp's patch makes them.
 #   cmake -DSOURCE=<gekkonet source dir> -P patch_gekkonet_mvc2.cmake
 if(NOT SOURCE)
@@ -13,12 +15,14 @@ if(NOT SOURCE)
 endif()
 set(backend_cpp "${SOURCE}/GekkoLib/src/backend.cpp")
 set(session_cpp "${SOURCE}/GekkoLib/src/game_session.cpp")
+set(backend_h "${SOURCE}/GekkoLib/include/private/backend.h")
 file(READ "${backend_cpp}" cpp)
 if(cpp MATCHES "ForkAde: MvC2 portable state")
     message(STATUS "GekkoNet already patched for MvC2's portable state")
     return()
 endif()
 file(READ "${session_cpp}" ses)
+file(READ "${backend_h}" hdr)
 
 function(swap var old new)
     string(FIND "${${var}}" "${old}" at)
@@ -86,6 +90,17 @@ swap(ses "        StateEntry* state = nullptr;
         // (ForkAde: MvC2 portable state) the session's saves are tokens: only the portable save will do
         for (Frame frame = state_frame; !gekko_forkade_portable_on() && frame >= oldest_state; frame--) {")
 
+# Sent slower than sf3comp's: MvC2's state is some 10 MB packed, and 32 chunks every 16 ms (1.8 MB/s) swamped a
+# relay (n0's) until neither the spectator nor the players' own packets got through; 10 (about 560 KB/s)
+swap(cpp "        constexpr u32 kChunksPerSend = 32;"
+"        constexpr u32 kChunksPerSend = 10; // (ForkAde: MvC2 portable state, paced for a relay)")
+
+# The spectators' inputs kept for 2 minutes, not 10 s: a state some 10 MB packed takes longer than 10 s over a relay,
+# and one older than the inputs kept is taken again and sent from the start, round and round
+swap(hdr "        const u32 MAX_SPECTATOR_INPUT_QUEUE_SIZE = 600;"
+"        const u32 MAX_SPECTATOR_INPUT_QUEUE_SIZE = 7200; // (ForkAde: MvC2 portable state, a relay's 2 minutes)")
+
+file(WRITE "${backend_h}" "${hdr}")
 file(WRITE "${backend_cpp}" "${cpp}")
 file(WRITE "${session_cpp}" "${ses}")
 message(STATUS "GekkoNet patched for MvC2's portable state")

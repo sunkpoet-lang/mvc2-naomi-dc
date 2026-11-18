@@ -73,6 +73,11 @@ constexpr unsigned kWholeMost = 96u << 20;
 uint32_t generation = 1, serial = 0;
 std::vector<uint8_t> portable; // (the last portable save, whole)
 uint32_t portableSerial = 0;
+// (the board as the session began, the same on every side: they boot alike to that frame) A spectator's state is sent
+// as the pages that differ from it, about 10 MB packed in a fight instead of 15
+std::vector<uint8_t> boot, sent;
+constexpr uint32_t kPage = 4096;
+constexpr uint32_t kDiffMark = 0x3144564D; // "MVD1"
 
 void Put32(uint8_t* at, uint32_t v) { std::memcpy(at, &v, 4); }
 uint32_t Get32(const uint8_t* at) {
@@ -81,10 +86,54 @@ uint32_t Get32(const uint8_t* at) {
     return v;
 }
 
+// MVD1, the whole state's size, then each page that differs from the boot state: its number and its bytes
+void Difference(const std::vector<uint8_t>& now, std::vector<uint8_t>& out) {
+    out.assign(8, 0);
+    Put32(&out[0], kDiffMark);
+    Put32(&out[4], static_cast<uint32_t>(now.size()));
+    for (uint32_t off = 0; off < now.size(); off += kPage) {
+        const uint32_t n = std::min<uint32_t>(kPage, static_cast<uint32_t>(now.size()) - off);
+        if (off + n <= boot.size() && std::memcmp(now.data() + off, boot.data() + off, n) == 0) {
+            continue;
+        }
+        const size_t at = out.size();
+        out.resize(at + 4 + n);
+        Put32(&out[at], off / kPage);
+        std::memcpy(&out[at + 4], now.data() + off, n);
+    }
+}
+
+bool Undifference(std::span<const uint8_t> d, std::vector<uint8_t>& whole) {
+    if (d.size() < 8 || Get32(d.data()) != kDiffMark || boot.empty()) {
+        return false;
+    }
+    const uint32_t size = Get32(d.data() + 4);
+    whole.assign(size, 0);
+    std::memcpy(whole.data(), boot.data(), std::min<size_t>(size, boot.size()));
+    for (size_t at = 8; at + 4 <= d.size();) {
+        const uint32_t off = Get32(d.data() + at) * kPage;
+        if (off >= size) {
+            return false;
+        }
+        const uint32_t n = std::min<uint32_t>(kPage, size - off);
+        if (at + 4 + n > d.size()) {
+            return false;
+        }
+        std::memcpy(whole.data() + off, d.data() + at + 4, n);
+        at += 4 + n;
+    }
+    return true;
+}
+
 int Expand(const unsigned char* token, unsigned int len, const unsigned char** out, unsigned int* outLen) {
     if (len == 9 && token[0] == 'P' && Get32(token + 5) == portableSerial && !portable.empty()) {
-        *out = portable.data();
-        *outLen = static_cast<unsigned int>(portable.size());
+        if (!boot.empty()) {
+            Difference(portable, sent);
+        } else {
+            sent = portable;
+        }
+        *out = sent.data();
+        *outLen = static_cast<unsigned int>(sent.size());
         return 1;
     }
     return 0;
@@ -127,7 +176,15 @@ bool MvC2Load(std::span<const uint8_t> state) {
         }
         state = portable;
     }
-    // (a whole state: a spectator's, or the arcade wait's beginning)
+    // (a spectator's: the pages that differ from the boot state)
+    std::vector<uint8_t> whole;
+    if (state.size() >= 8 && Get32(state.data()) == kDiffMark) {
+        if (!Undifference(state, whole)) {
+            return false;
+        }
+        state = whole;
+    }
+    // (a whole state: the arcade wait's beginning)
     if (!forkade_state_load(state.data(), state.size())) {
         return false;
     }
@@ -155,6 +212,22 @@ bool Port::RunOnlineFrame(std::span<const uint16_t> players, bool again) {
     mvc2_front_run_frame(&in, again ? 0 : 1, again ? 0 : 1);
     if (!again) {
         frame++;
+    }
+    {
+        // (MVC2_ONLINE_HASH=FILE, the checks': each frame run, by the game's own count, and the board's fingerprint; a
+        // guess later taken back is run again, so the last line of a frame is the one that counts)
+        static std::FILE* log = nullptr;
+        static bool looked = false;
+        if (!looked) {
+            looked = true;
+            if (const char* path = std::getenv("MVC2_ONLINE_HASH")) {
+                log = std::fopen(path, "w");
+            }
+        }
+        if (log != nullptr) {
+            std::fprintf(log, "%u %08x\n", host_frame(), StateHash());
+            std::fflush(log);
+        }
     }
     return true;
 }
@@ -275,6 +348,7 @@ int forkade_online_start(char* error, int room) {
         return 0;
     }
     gekko_forkade_portable(port::Expand, port::kWholeMost);
+    port::MvC2Whole(port::boot); // (the board as the session begins: the same on every side)
     online = std::make_unique<port::Online>();
     std::string why;
     port::Port& p = port::ThePort();
