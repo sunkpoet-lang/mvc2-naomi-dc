@@ -34,6 +34,10 @@ typedef struct {
     void (*main)(void);
     const HOST_RELOC* reloc;
     HOST_SPAN span;
+    /* (ForkAde) the game's fight state (VS_SYS_WORK, include/vs_sys.h) and its Sys pointer (SYSTEM_WORK,
+       include/system.h), read by replays and online play: a fight under way, who won */
+    const char* vs_sys;
+    char** sys;
 } HOST_PROGRAM;
 
 extern const HOST_PROGRAM arc_program;
@@ -71,6 +75,7 @@ void naomi_m1_read(uint32_t src, uint8_t* dst, uint32_t size);     /* a packed f
 /* the board (naomi_board.c) */
 int naomi_map_ram(void);
 int naomi_init(const HOST_PROGRAM* program, const char* rom_path);
+const HOST_PROGRAM* naomi_program(void);    /* (ForkAde) the program running */
 void board_start(const HOST_PROGRAM* program);  /* a program loaded in RAM */
 void board_at_stop(void (*fn)(void));
 void board_at_frame(void (*fn)(void));  /* before the game runs */
@@ -87,6 +92,7 @@ struct tm;
 void host_clock(struct tm* tm);
 extern int host_unlock;             /* unlock = all */
 extern int host_freeplay;           /* freeplay = on */
+extern int host_online;             /* (ForkAde) online play: the defaults and a fixed clock (nl_am.c) */
 void* host_user_eeprom(void);       /* the game's settings, as the EEPROM keeps them (nl_am.c), or NULL */
 void* host_user_backup(void);       /* and its book-keeping, as the backup memory does */
 void nlaUpdateUserEEPROM(void);     /* each saved to its file */

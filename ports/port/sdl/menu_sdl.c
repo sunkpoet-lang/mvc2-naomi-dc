@@ -329,6 +329,11 @@ static void act(int up, int down, int left, int right, int enter, int reset, int
     }
 }
 
+/* (ForkAde) from the menu bar's Input > Controls */
+void menu_open_controls(void) {
+    open_ = 1, player = 0, row = 0, waiting = 0;
+}
+
 /* 1 when it took the event */
 int menu_event(const SDL_Event* e) {
     if (!open_) {

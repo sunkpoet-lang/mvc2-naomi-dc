@@ -8,6 +8,12 @@
 
 #include "naomi_host.h"
 
+#ifdef _WIN32
+#include <windows.h>
+#define FORKADE_KEEP_BASE 0x30000000u
+#define FORKADE_KEEP_SIZE (8u << 20)
+#endif
+
 extern char host_span_data_begin[], host_span_data_end[], host_span_bss_begin[], host_span_bss_end[];
 
 static const HOST_SPAN host_span = { host_span_data_begin, host_span_data_end, host_span_bss_begin, host_span_bss_end };
@@ -52,6 +58,17 @@ void host_keep_program(const HOST_PROGRAM* program) {
 void* host_keep_block(size_t size) {
     static void* block;
     static size_t held;
+#ifdef _WIN32
+    /* (ForkAde) at a fixed address, its writes watched, for save states and rollback (port/forkade/state.c) */
+    if (block == NULL && size <= FORKADE_KEEP_SIZE) {
+        block = VirtualAlloc((void*)(uintptr_t)FORKADE_KEEP_BASE, FORKADE_KEEP_SIZE,
+                             MEM_RESERVE | MEM_COMMIT | MEM_WRITE_WATCH, PAGE_READWRITE);
+        held = block != NULL ? size : 0;
+    }
+    if (block != NULL && (uintptr_t)block == FORKADE_KEEP_BASE) {
+        return size <= FORKADE_KEEP_SIZE ? (held = size, block) : NULL;
+    }
+#endif
     if (block == NULL || held != size) {
         free(block);
         block = malloc(size);

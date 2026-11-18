@@ -1,0 +1,29 @@
+# (ForkAde, replay-compatibility) The sources that decide the game's state: a replay plays on any build whose
+# identity (a SHA-256 over these files' contents, line endings made LF) is its own. Globs from this folder; the
+# window, the menu bar, the viewer, sound output and online files are not on it.
+../src/*.c
+../src/*.h
+../src/*.s
+../src/*/*.c
+../src/*/*.h
+../src/*/*.s
+../src/*/*/*.c
+../src/*/*/*.h
+../src/*/*/*.s
+../include/*.h
+port/include/*.h
+port/naomi/*.c
+port/naomi/*.h
+port/nl/*.c
+port/nl/*.h
+port/snd/*.c
+port/snd/*.h
+port/sys/*.c
+port/sys/*.h
+port/game/*.c
+port/game/*.h
+port/forkade/state.c
+port/forkade/state_heap.c
+port/forkade/state_alloc.h
+port/forkade/state_begin.c
+port/tools/*.py

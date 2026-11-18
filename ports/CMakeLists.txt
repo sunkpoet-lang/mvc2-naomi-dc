@@ -90,8 +90,6 @@ target_compile_options(mvc2_lib PRIVATE ${GAME_OPTIONS})
 # the board and Sega's libraries
 set(NAOMI_SOURCES
     ${PORT}/naomi/naomi_board.c
-    ${PORT}/naomi/naomi_rom.c
-    ${PORT}/naomi/naomi_zip.c
     ${PORT}/naomi/naomi_m1.c
     ${PORT}/naomi/nl_am.c
     ${PORT}/nl/nl_xmtr.c
@@ -102,7 +100,6 @@ set(NAOMI_SOURCES
     ${PORT}/nl/nl_fog.c
     ${PORT}/nl/nl_sys.c
     ${PORT}/nl/nl_obj.c
-    ${PORT}/render/rd.c
     ${PORT}/snd/arm7.c
     ${PORT}/snd/aica.c
     ${PORT}/snd/snd_drv.c
@@ -161,14 +158,27 @@ else()
         list(APPEND HOST_SOURCES ${PORT}/render/rd_gpu.c)
     endif()
     if(WIN32)
-        set(SYS_SOURCES ${PORT}/sys/coro_win32.c ${PORT}/sys/divzero_win32.c)
+        # (ForkAde) coroutines on stacks in the state heap, not fibers, so that a save state keeps the game's
+        set(SYS_SOURCES ${PORT}/sys/coro_x86.c ${PORT}/forkade/state_heap.c ${PORT}/sys/divzero_win32.c)
     elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^arm")
         set(SYS_SOURCES ${PORT}/sys/coro_arm.c ${PORT}/sys/divzero_arm.c)
     else()
         message(FATAL_ERROR "port/sys has coroutines and division by zero for Windows (x86) and 32-bit ARM only")
     endif()
     set(FRONT_SOURCES ${PORT}/sdl/main_sdl.c ${PORT}/sdl/start.c ${PORT}/sdl/input_sdl.c ${PORT}/sdl/menu_sdl.c
-        ${PORT}/sdl/sdl_audio.c ${PORT}/sdl/test_mode.c)
+        ${PORT}/sdl/sdl_audio.c ${PORT}/sdl/test_mode.c
+        ${PORT}/forkade/state_hash.c ${PORT}/forkade/state.c ${PORT}/forkade/rollback.c) # (ForkAde: MVC2_HASHLOG, save states, rollback)
+    if(MVC2_SDL3)
+        # (ForkAde) the menu bar: recomp-common's (C++17, a copy: port/forkade/recomp-common/COMMIT) through bar.cpp
+        enable_language(CXX)
+        set(CMAKE_CXX_STANDARD 20)
+        list(APPEND FRONT_SOURCES ${PORT}/forkade/bar.cpp ${PORT}/forkade/recomp-common/menubar.cpp
+             ${PORT}/forkade/recomp-common/menu.cpp
+             # (ForkAde) replays: .fareplay (fareplay.cpp, from the CPS fork) and the viewer (recomp-common's)
+             ${PORT}/forkade/replays.cpp ${PORT}/forkade/fareplay.cpp ${PORT}/forkade/recomp-common/replay_viewer.cpp
+             # (ForkAde) online play: ForkAde's session (port/forkade/online, from sf3comp 8e7f280) over GekkoNet
+             ${PORT}/forkade/online/online.cpp ${PORT}/forkade/online/port_mvc2.cpp ${PORT}/forkade/recomp-common/chat.cpp)
+    endif()
 endif()
 if(NINTENDO_3DS)
     list(APPEND FRONT_SOURCES ${PORT}/ctr/ctr_audio.c ${PORT}/ctr/ctr_code.c)    # the sound out and its translator's code memory
@@ -195,7 +205,16 @@ if(NINTENDO_3DS)
             gxCmdQueueRun gspSubmitGxCommand)    # C3D_FrameEnd's hand-over to GSP (ctr_prof.c)
     endif()
 endif()
-add_library(mvc2_port OBJECT ${NAOMI_SOURCES} ${HOST_SOURCES})
+# (ForkAde) the drawing layer and the ROM's cache first, then state_begin.c: from there to the host span's end is
+# the state a save keeps (port/forkade/state.c); the modules whose memory is state take it from the state heap
+set(STATE_HEAP_SOURCES ${PORT}/naomi/nl_am.c ${PORT}/nl/nl_tex.c ${PORT}/nl/nl_lz.c ${PORT}/nl/nl_obj.c
+    ${PORT}/snd/aica.c)
+if(WIN32 AND NOT NINTENDO_3DS)
+    set_property(SOURCE ${STATE_HEAP_SOURCES} APPEND PROPERTY COMPILE_OPTIONS
+                 -include ${PORT}/forkade/state_alloc.h)
+endif()
+add_library(mvc2_port OBJECT ${PORT}/render/rd.c ${PORT}/naomi/naomi_rom.c ${PORT}/naomi/naomi_zip.c ${HOST_SOURCES}
+            ${PORT}/forkade/state_begin.c ${NAOMI_SOURCES})
 target_include_directories(mvc2_port PRIVATE ${PORT}/include ${PORT}/sys ${PORT}/render ${PORT}/nl ${PORT}/snd)
 # the library routines take the game's own types from its headers
 set_source_files_properties(${PORT}/naomi/nl_am.c PROPERTIES INCLUDE_DIRECTORIES ${GAME}/include)
@@ -291,9 +310,59 @@ set(CHDR ${PORT}/ext/libchdr)
 file(GLOB CHDR_SOURCES ${CHDR}/src/*.c)
 add_library(mvc2_chdr STATIC ${CHDR_SOURCES} ${CHDR}/deps/lzma-26.02/src/LzmaDec.c ${CHDR}/deps/miniz-3.1.2/miniz.c
             ${CHDR}/deps/zstd-1.5.7/zstddeclib.c)
-target_compile_definitions(mvc2_chdr PRIVATE MINIZ_NO_ARCHIVE_APIS MINIZ_NO_DEFLATE_APIS MINIZ_NO_STDIO MINIZ_NO_TIME
+target_compile_definitions(mvc2_chdr PRIVATE MINIZ_NO_ARCHIVE_APIS MINIZ_NO_STDIO MINIZ_NO_TIME
                            WANT_RAW_DATA_SECTOR=1 WANT_SUBCODE=1 VERIFY_BLOCK_CRC=1 LOWRAM_TARGET=0)
 target_compile_options(mvc2_chdr PRIVATE -O2 -w ${HOST_ABI} ${HOST_FLOAT})
+
+# (ForkAde) GekkoNet (BSD-2-Clause), ForkAde's rollback for online play, as the CPS games and sf3comp pin it
+# (HeatXD/GekkoNet v20261024222910-9da2363): its library only, static, without asio. GEKKONET_SOURCE is its source,
+# copied into the build and patched there: sf3comp's spectator state (patch_gekkonet_sf3.cmake) and MvC2's portable
+# state (patch_gekkonet_mvc2.cmake); zlib's names are the port's miniz (port/forkade/zlib)
+if(MVC2_SDL3 AND WIN32)
+    set(GEKKONET_SOURCE "/d/CPS2/deps/gekkonet-9da2363" CACHE PATH "GekkoNet's sources (the release ForkAde pins)")
+    set(GEKKONET_COPY ${CMAKE_BINARY_DIR}/gekkonet-src)
+    if(NOT EXISTS ${GEKKONET_COPY}/GekkoLib/CMakeLists.txt)
+        file(COPY ${GEKKONET_SOURCE}/ DESTINATION ${GEKKONET_COPY})
+    endif()
+    foreach(patch sf3 mvc2)
+        execute_process(COMMAND ${CMAKE_COMMAND} -DSOURCE=${GEKKONET_COPY}
+                        -P ${CMAKE_CURRENT_SOURCE_DIR}/port/forkade/patch_gekkonet_${patch}.cmake RESULT_VARIABLE patched)
+        if(NOT patched EQUAL 0)
+            message(FATAL_ERROR "GekkoNet: patch_gekkonet_${patch}.cmake failed")
+        endif()
+    endforeach()
+    set(NO_ASIO_BUILD ON CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    add_subdirectory(${GEKKONET_COPY}/GekkoLib ${CMAKE_BINARY_DIR}/gekkonet-build EXCLUDE_FROM_ALL)
+    target_include_directories(GekkoNet PRIVATE ${PORT}/forkade/zlib ${PORT}/ext/libchdr/deps/miniz-3.1.2)
+    target_link_libraries(GekkoNet PRIVATE mvc2_chdr)
+    target_compile_options(GekkoNet PRIVATE -w)
+endif()
+
+# (ForkAde, replay-compatibility) the gameplay identity: a SHA-256 over the sources replay_identity.txt lists, their
+# line endings made LF, written into gen/replay_identity.h; a replay plays only on a build of its own identity
+file(STRINGS ${CMAKE_CURRENT_SOURCE_DIR}/replay_identity.txt IDENTITY_GLOBS REGEX "^[^#]")
+set(IDENTITY_FILES)
+foreach(g ${IDENTITY_GLOBS})
+    file(GLOB found CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${g})
+    list(APPEND IDENTITY_FILES ${found})
+endforeach()
+list(REMOVE_DUPLICATES IDENTITY_FILES)
+list(SORT IDENTITY_FILES)
+set(IDENTITY_TEXT "")
+foreach(f ${IDENTITY_FILES})
+    file(READ ${f} body)
+    string(REPLACE "\r\n" "\n" body "${body}")
+    string(SHA256 h "${body}")
+    file(RELATIVE_PATH rel ${CMAKE_CURRENT_SOURCE_DIR} ${f})
+    string(APPEND IDENTITY_TEXT "${rel} ${h}\n")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${f})
+endforeach()
+string(SHA256 MVC2_IDENTITY "${IDENTITY_TEXT}")
+list(LENGTH IDENTITY_FILES IDENTITY_COUNT)
+message(STATUS "replay identity ${MVC2_IDENTITY} (${IDENTITY_COUNT} files)")
+file(WRITE ${CMAKE_BINARY_DIR}/gen/replay_identity.h
+     "/* generated by CMakeLists.txt from replay_identity.txt */\n#define MVC2_REPLAY_IDENTITY \"${MVC2_IDENTITY}\"\n#define MVC2_VERSION_TEXT \"${MVC2_VERSION}\"\n")
 
 # an executable of the host and one or more programs (arc, dc), with the front end told which
 function(mvc2_executable TARGET)
@@ -331,12 +400,17 @@ function(mvc2_executable TARGET)
         COMMENT "Making the host's layers one relocatable for ${TARGET}")
     set_source_files_properties(${CMAKE_BINARY_DIR}/${TARGET}_host.o PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
     add_executable(${TARGET} ${OBJECTS} ${FRONT_SOURCES} ${PORT}/sys/restart.c)
-    target_include_directories(${TARGET} PRIVATE ${PORT}/include ${PORT}/render ${PORT}/snd)
+    target_include_directories(${TARGET} PRIVATE ${PORT}/include ${PORT}/render ${PORT}/snd
+        ${CMAKE_BINARY_DIR}/gen ${PORT}/ext/libchdr/deps/miniz-3.1.2) # (ForkAde: replay_identity.h, miniz for .fareplay)
+    if(MVC2_SDL3 AND WIN32)
+        target_link_libraries(${TARGET} PRIVATE GekkoNet ws2_32 bcrypt) # (ForkAde: online play)
+        target_include_directories(${TARGET} PRIVATE ${PORT}/forkade/zlib) # (zlib.h: miniz)
+    endif()
     target_compile_definitions(${TARGET} PRIVATE ${DEFS})
     if("dc" IN_LIST ARGN)
         target_link_libraries(${TARGET} PRIVATE mvc2_chdr)
     endif()
-    target_compile_options(${TARGET} PRIVATE -O2 -std=gnu17 -Wall ${HOST_FLOAT})
+    target_compile_options(${TARGET} PRIVATE -O2 $<$<COMPILE_LANGUAGE:C>:-std=gnu17> -Wall ${HOST_FLOAT}) # (ForkAde: C++ too)
     foreach(p ${ARGN})
         # the addresses of the names the program keeps in place (NAME.sys_font_thd)
         target_link_options(${TARGET} PRIVATE @${GEN}/${p}/host_defsyms.rsp)
@@ -456,7 +530,8 @@ endif()
 
 # cmake --install BUILD --prefix FOLDER: the executables, SDL's DLL (on Linux the system's), PLAYING.md and
 # mvc2.cfg (unless there is one)
-if(WIN32)
+# (ForkAde) not when cross-compiling (MSYS2's cross GCC): there the package is put together by ForkAde's own script
+if(WIN32 AND NOT CMAKE_CROSSCOMPILING)
     get_filename_component(TOOL_BIN ${CMAKE_C_COMPILER} DIRECTORY)
     set(DLL_DIRS ${TOOL_BIN})
     if(TARGET SDL3::SDL3-shared)

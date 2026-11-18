@@ -147,8 +147,12 @@ static int user_backup_size;
 static char* user_eeprom;
 static int user_eeprom_size;
 
+/* (ForkAde) online play: both sides boot alike, so the backup and the EEPROM are the game's defaults, never read or
+   written, and the clock is fixed (host_clock) */
+int host_online;
+
 static int load_file(const char* name, char* p, int size) {
-    FILE* f = fopen(name, "rb");
+    FILE* f = host_online ? NULL : fopen(name, "rb");
     int ok;
     if (f == NULL) {
         return 0;
@@ -162,6 +166,9 @@ static int load_file(const char* name, char* p, int size) {
 static void save_file(const char* name, const char* p, int size) {
     char tmp[256];
     FILE* f;
+    if (host_online) {
+        return;
+    }
     snprintf(tmp, sizeof tmp, "%s.tmp", name);
     f = fopen(tmp, "wb");
     if (f == NULL) {
@@ -232,8 +239,8 @@ void host_clock(struct tm* out) {
     struct tm* tm;
     if (!looked) {
         const char* e = getenv("MVC2_FRAMES") != NULL ? getenv("MVC2_CLOCK") : NULL;
-        fixed = e != NULL;
-        fixed_t = fixed ? (time_t)strtoll(e, NULL, 10) : 0;
+        fixed = e != NULL || host_online;
+        fixed_t = e != NULL ? (time_t)strtoll(e, NULL, 10) : host_online ? (time_t)946684800 : 0; /* (2000-01-01) */
         looked = 1;
     }
     t = fixed ? fixed_t : time(NULL);

@@ -280,6 +280,17 @@ int pick_game(int argc, char** argv) {
             flag = ARCADE;
         } else if (strcmp(argv[i], "--dc") == 0) {
             flag = DC;
+        } else if ((strcmp(argv[i], "--replay") == 0 || strcmp(argv[i], "--name1") == 0 ||
+                    strcmp(argv[i], "--name2") == 0 || strcmp(argv[i], "--gekko-join") == 0 ||
+                    strcmp(argv[i], "--gekko-watch") == 0 || strcmp(argv[i], "--gekko-delay") == 0 ||
+                    strcmp(argv[i], "--gekko-spectators") == 0 || strcmp(argv[i], "--gekko-spectator-delay") == 0 ||
+                    strcmp(argv[i], "--gekko-checkpoint-log") == 0 || strcmp(argv[i], "--nick") == 0 ||
+                    strcmp(argv[i], "--net-say") == 0) && i + 1 < argc) {
+            i++;    /* (ForkAde: replays.h's and online_c.h's, read in main_sdl.c and port_mvc2.cpp) */
+        } else if (strncmp(argv[i], "--gekko-", 8) == 0) {
+            if (strcmp(argv[i], "--gekko-host") == 0 && i + 1 < argc && argv[i + 1][0] != '-') {
+                i++;    /* (its port) */
+            }
         } else {
             arg = argv[i];
         }

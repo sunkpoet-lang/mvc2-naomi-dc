@@ -104,7 +104,8 @@ void host_stub_report(void) {
 /* first thing in main(), before SDL or a GPU driver takes the addresses */
 int naomi_map_ram(void) {
 #ifdef _WIN32
-    void* p = VirtualAlloc((void*)(uintptr_t)NAOMI_RAM_BASE, NAOMI_RAM_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    void* p = VirtualAlloc((void*)(uintptr_t)NAOMI_RAM_BASE, NAOMI_RAM_SIZE, MEM_RESERVE | MEM_COMMIT | MEM_WRITE_WATCH,
+                           PAGE_READWRITE); /* (ForkAde: the pages written, for rollback's saves) */
     return p == (void*)(uintptr_t)NAOMI_RAM_BASE;
 #elif defined(__3DS__)
     extern int ctr_ram_mapped;      /* mapped before libctru's heaps (port/ctr/main_3ds.c) */
@@ -236,6 +237,11 @@ void naomi_run_frame(void) {
         PROF_STOP(PZ_GAME_IRQ, t1);
     }
     coro_switch(game_coro);
+}
+
+/* (ForkAde) the program running, NULL before one starts */
+const HOST_PROGRAM* naomi_program(void) {
+    return program;
 }
 
 __attribute__((section(".text.nlhot"))) unsigned host_frame(void) {

@@ -113,6 +113,18 @@ void sdl_audio_close(void) {
     }
 }
 
+/* (ForkAde) the menu bar's Audio: the output's gain, 0 silent, 1 as the game makes it */
+static float gain = 1.0f;
+
+void sdl_audio_gain(float g) {
+    gain = g;
+#ifdef MVC2_SDL3
+    if (dev) {
+        SDL_SetAudioStreamGain(dev, gain);
+    }
+#endif
+}
+
 static void put(const int16_t* s, int n) {
 #ifdef MVC2_SDL3
     SDL_PutAudioStreamData(dev, s, n * CHANNELS * 2);
@@ -172,6 +184,12 @@ static double backstop(double frames) {
     }
     last = now;
     return frames;
+}
+
+/* (ForkAde) a frame's sound made (the sound CPU runs in it) and not played: a replay's frames run unseen or fast */
+void sdl_audio_frame_silent(void) {
+    const int16_t* s;
+    snd_frame(&s);
 }
 
 void sdl_audio_frame(void) {
