@@ -16,6 +16,15 @@
 
 #define CONFIG "mvc2.cfg"
 
+/* (ForkAde: MVC2_USER_DIR) */
+#ifdef _WIN32
+#include <direct.h>
+#define make_dir(d) _mkdir(d)
+#else
+#include <sys/stat.h>
+#define make_dir(d) mkdir(d, 0777)
+#endif
+
 enum { ARCADE, DC, MODES };
 
 static const struct {
@@ -78,9 +87,21 @@ static const char* beside_exe(const char* path, char* buf, size_t size) {
 #endif
 }
 
+/* (ForkAde) MVC2_USER_DIR: the player's own files (mvc2.cfg, the backup, save states, replays, screenshots) kept there
+   (ForkAde's MvC2/user), not beside the program */
+static const char* user_file(const char* name, char* buf, size_t size) {
+    const char* user = getenv("MVC2_USER_DIR");
+    if (user != NULL && *user) {
+        make_dir(user);
+        snprintf(buf, size, "%s/%s", user, name);
+        return buf;
+    }
+    return beside_exe(name, buf, size);
+}
+
 const char* host_save_path(const char* name) {
     static char buf[1100];
-    return beside_exe(name, buf, sizeof buf);
+    return user_file(name, buf, sizeof buf);
 }
 
 static char* parse_line(char* line, char** value) {
@@ -121,7 +142,7 @@ static void keep(const char* key, const char* value) {
 static void read_config(void) {
     char line[1100];
     FILE* f;
-    beside_exe(CONFIG, config_path, sizeof config_path);
+    user_file(CONFIG, config_path, sizeof config_path);
     f = fopen(config_path, "r");
     while (f != NULL && fgets(line, sizeof line, f) != NULL) {
         char* v;
@@ -366,6 +387,13 @@ static void unpack_progress(uint32_t done, uint32_t total) {
 }
 #endif
 
+/* (ForkAde) the folder the disc's files are read from: MVC2_DISC_DIR (ForkAde's, the files unpacked there from the
+   player's image, which is only read), else the disc's own folder */
+static const char* disc_files(const char* dir) {
+    const char* own = getenv("MVC2_DISC_DIR");
+    return own != NULL && *own ? own : dir;
+}
+
 /* the disc's files from the image in dir, once; 0 when they could not be had */
 static int unpack_disc(const char* dir) {
     const char* image = dc_image_find(dir);
@@ -388,7 +416,7 @@ static int unpack_disc(const char* dir) {
         SDL_SetWindowTitle(SDL_GetKeyboardFocus(), "Marvel vs. Capcom 2");
     }
 #endif
-    missing = err == NULL ? dc_disc_missing(dir) : NULL;
+    missing = err == NULL ? dc_disc_missing(disc_files(dir)) : NULL;
     if (err == NULL && missing == NULL) {
         return 1;
     }
@@ -438,11 +466,11 @@ int start_game(void) {
 #endif
 #ifdef MVC2_DC
     if (mode == DC) {
-        if (dc_disc_missing(path[mode]) != NULL && !unpack_disc(path[mode])) {
+        if (dc_disc_missing(disc_files(path[mode])) != NULL && !unpack_disc(path[mode])) {
             return 0;
         }
         host_keep_program(&dc_program);
-        return dc_init(&dc_program, path[mode]);
+        return dc_init(&dc_program, disc_files(path[mode]));
     }
 #endif
     return 0;

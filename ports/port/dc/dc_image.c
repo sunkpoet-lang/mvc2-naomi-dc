@@ -428,7 +428,11 @@ const char* dc_image_unpack(const char* dir, void (*progress)(uint32_t done, uin
     if (image == NULL) {
         return fail("no disc image in %s", dir);
     }
-    host_log("disc image: unpacking %s/%s", dir, image);
+    /* (ForkAde) the files into MVC2_DISC_DIR when it is set (ForkAde's own folder, never the player's), else beside
+       the image */
+    const char* to = getenv("MVC2_DISC_DIR") != NULL && *getenv("MVC2_DISC_DIR") ? getenv("MVC2_DISC_DIR") : dir;
+    make_dir(to);
+    host_log("disc image: unpacking %s/%s into %s", dir, image, to);
     snprintf(path, sizeof path, "%s/%s", dir, image);
     t.raw = malloc((size_t)CHUNK * 2352);
     if (t.raw == NULL) {
@@ -465,8 +469,8 @@ const char* dc_image_unpack(const char* dir, void (*progress)(uint32_t done, uin
         const ENTRY* e = &entries[i];
         uint32_t left = e->bytes, lba = e->lba;
         FILE* out;
-        make_dirs(dir, e->name);
-        snprintf(path, sizeof path, "%s/%s", dir, e->name);
+        make_dirs(to, e->name);
+        snprintf(path, sizeof path, "%s/%s", to, e->name);
         snprintf(part, sizeof part, "%s.part", path);
         if ((out = fopen(part, "wb")) == NULL) {
             err = "a file could not be written (is the SD card full?)";

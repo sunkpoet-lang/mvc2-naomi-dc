@@ -184,7 +184,8 @@ static void save_file(const char* name, const char* p, int size) {
 
 /* a test run keeps them in the current folder */
 static const char* save_name(const char* name) {
-    return getenv("MVC2_FRAMES") != NULL ? name : host_save_path(name);
+    /* (ForkAde: with MVC2_USER_DIR, always there, a test run's too) */
+    return getenv("MVC2_FRAMES") != NULL && getenv("MVC2_USER_DIR") == NULL ? name : host_save_path(name);
 }
 
 /* 0 when the saved data was there; otherwise the game sets its defaults */

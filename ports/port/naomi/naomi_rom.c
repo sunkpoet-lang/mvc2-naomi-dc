@@ -215,6 +215,13 @@ void naomi_rom_set_reader(const NAOMI_ROM_READER* r) {
     reader = r;
 }
 
+/* (ForkAde) where the image of the set is kept: MVC2_IMAGE_DIR (ForkAde keeps it in its own folder, never the
+   player's ROM folder), else beside the set */
+static const char* image_dir(const char* dir) {
+    const char* own = getenv("MVC2_IMAGE_DIR");
+    return own != NULL && *own ? own : dir;
+}
+
 static int has_file(const char* dir, const char* name, uint32_t size) {
     char path[1024];
     struct stat st;
@@ -264,7 +271,7 @@ const char* naomi_rom_check(const char* dir) {
     const char* missing;
     NAOMI_ZIP* z;
     int whole;
-    if (has_file(dir, IMAGE, ROM_SIZE) || (missing = missing_file(dir)) == NULL) {
+    if (has_file(image_dir(dir), IMAGE, ROM_SIZE) || (missing = missing_file(dir)) == NULL) {
         return NULL;
     }
     z = open_zip(dir);
@@ -386,6 +393,7 @@ int naomi_rom_make_image(const char* dir, const char* path, PROGRESS progress) {
             return 0;
         }
     }
+    make_dir(image_dir(dir)); /* (ForkAde: the image's folder, when it is not the set's) */
     snprintf(tmp, sizeof tmp, "%s.part", path);
     f = fopen(tmp, "wb");
     ok = f != NULL && (z != NULL ? from_zip(z, f, progress) : from_files(dir, f, progress));
@@ -417,17 +425,17 @@ int naomi_rom_open(const char* dir) {
         slot[i].block = -1;
         slot[i].used = 0;
     }
-    snprintf(path, sizeof path, "%s/%s", dir, IMAGE);
+    snprintf(path, sizeof path, "%s/%s", image_dir(dir), IMAGE);
     if (reader != NULL && reader->open(dir)) {
         use_reader = 1;
     } else {
-        if (!has_file(dir, IMAGE, ROM_SIZE) && missing_file(dir) != NULL) {
+        if (!has_file(image_dir(dir), IMAGE, ROM_SIZE) && missing_file(dir) != NULL) {
             host_log("unpacking the set's zip into %s", path);
             if (!naomi_rom_make_image(dir, path, NULL)) {
                 host_log("could not unpack the set's zip into %s", path);
             }
         }
-        if (has_file(dir, IMAGE, ROM_SIZE)) {
+        if (has_file(image_dir(dir), IMAGE, ROM_SIZE)) {
             image = fopen(path, "rb");
             if (image == NULL) {
                 return 0;
